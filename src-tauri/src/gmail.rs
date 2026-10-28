@@ -2,8 +2,8 @@ use base64::Engine;
 use chrono::{DateTime, NaiveDate, Utc};
 #[cfg(windows)]
 use oauth2::{
-    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge,
-    RedirectUrl, Scope, TokenResponse, TokenUrl,
+    basic::BasicClient, AuthType, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
+    PkceCodeChallenge, RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
 use regex::Regex;
 use reqwest::blocking::{Client, Response};
@@ -26,6 +26,8 @@ const CREDENTIAL_SERVICE: &str = "PaisaPilot Gmail";
 const CREDENTIAL_USER: &str = "oauth-tokens";
 #[cfg(windows)]
 const CLIENT_ID: Option<&str> = option_env!("PAISAPILOT_GOOGLE_CLIENT_ID");
+#[cfg(windows)]
+const CLIENT_SECRET: Option<&str> = option_env!("PAISAPILOT_GOOGLE_CLIENT_SECRET");
 
 #[cfg(windows)]
 #[derive(Debug, Deserialize, Serialize)]
@@ -186,17 +188,110 @@ pub fn disconnect() -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn oauth_client(id: &str) -> Result<BasicClient, String> {
+fn oauth_client(id: &str, secret: Option<&str>) -> Result<BasicClient, String> {
+    let secret = secret
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| ClientSecret::new(value.to_string()));
     Ok(BasicClient::new(
         client_id(id)?,
-        None,
+        secret,
         AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".into())
             .map_err(|e| format!("Invalid Google authorization endpoint: {e}"))?,
         Some(
             TokenUrl::new("https://oauth2.googleapis.com/token".into())
                 .map_err(|e| format!("Invalid Google token endpoint: {e}"))?,
         ),
-    ))
+    )
+    .set_auth_type(AuthType::RequestBody))
+}
+
+#[cfg(windows)]
+fn oauth_setup_hint(error_code: &str) -> &'static str {
+    match error_code {
+        "invalid_client" => {
+            "Check that this build uses the OAuth Client ID for a Desktop app and its matching client secret from the same downloaded Google credentials. Rebuild after updating .env; never use Web application credentials."
+        }
+        "invalid_grant" => {
+            "Retry sign-in. Confirm the Desktop OAuth Client ID matches this build and the Windows date and time are correct."
+        }
+        "unauthorized_client" => {
+            "Check that the OAuth client is a Desktop app, Gmail API is enabled, and this Google account is listed as a test user."
+        }
+        "invalid_request" => {
+            "Check the Desktop OAuth Client ID and matching client secret. If Google reports client_secret is missing, set PAISAPILOT_GOOGLE_CLIENT_SECRET in .env and rebuild."
+        }
+        _ => {
+            "Check the Google Cloud OAuth client, Gmail API, and consent-screen test-user configuration."
+        }
+    }
+}
+
+#[cfg(windows)]
+fn sanitized_diagnostic(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .take(240)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+#[cfg(windows)]
+fn error_chain(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut parts = Vec::new();
+    let mut current = Some(error);
+    while let Some(cause) = current {
+        let detail = sanitized_diagnostic(&cause.to_string());
+        if !detail.is_empty() && parts.last() != Some(&detail) {
+            parts.push(detail);
+        }
+        if parts.len() == 3 {
+            break;
+        }
+        current = cause.source();
+    }
+    parts.join(": ")
+}
+
+#[cfg(windows)]
+fn token_exchange_error(
+    error: oauth2::basic::BasicRequestTokenError<oauth2::reqwest::HttpClientError>,
+) -> String {
+    let (cause, next_step) = match error {
+        oauth2::RequestTokenError::ServerResponse(response) => {
+            let code = response.error().to_string();
+            let description = response
+                .error_description()
+                .map(|value| sanitized_diagnostic(value))
+                .filter(|value| !value.is_empty());
+            let cause = match description {
+                Some(description) => format!("{code}: {description}"),
+                None => code.clone(),
+            };
+            (cause, oauth_setup_hint(&code))
+        }
+        oauth2::RequestTokenError::Request(source) => (
+            format!("Network/TLS request failed: {}", error_chain(&source)),
+            "Check your internet connection, VPN/proxy, and firewall access to oauth2.googleapis.com.",
+        ),
+        oauth2::RequestTokenError::Parse(source, _) => (
+            format!("Google returned an unreadable token response: {source}"),
+            "Retry sign-in. If it continues, check Google's OAuth status and verify the configured Desktop Client ID.",
+        ),
+        oauth2::RequestTokenError::Other(detail) => (
+            sanitized_diagnostic(&detail),
+            "Check the Google Cloud OAuth client configuration and retry sign-in.",
+        ),
+    };
+    format!("Google sign-in failed during token exchange.\nCause: {cause}\nNext: {next_step}")
 }
 
 #[cfg(windows)]
@@ -295,7 +390,7 @@ pub fn connect(id: &str) -> Result<String, String> {
         .port();
     let redirect = RedirectUrl::new(format!("http://127.0.0.1:{port}/"))
         .map_err(|e| format!("Could not prepare the OAuth redirect: {e}"))?;
-    let client = oauth_client(id)?.set_redirect_uri(redirect);
+    let client = oauth_client(id, CLIENT_SECRET)?.set_redirect_uri(redirect);
     let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
     let (auth_url, csrf) = client
         .authorize_url(CsrfToken::new_random)
@@ -310,8 +405,8 @@ pub fn connect(id: &str) -> Result<String, String> {
     let token = client
         .exchange_code(AuthorizationCode::new(code))
         .set_pkce_verifier(verifier)
-        .request(oauth2::ureq::http_client)
-        .map_err(|e| format!("Google token exchange failed: {e}"))?;
+        .request(oauth2::reqwest::http_client)
+        .map_err(token_exchange_error)?;
     let access_token = token.access_token().secret().to_string();
     let refresh_token = token.refresh_token().map(|value| value.secret().to_string())
         .ok_or("Google did not return a refresh token. Revoke PaisaPilot access in Google Account settings and try again.")?;
@@ -333,13 +428,16 @@ pub fn connect(id: &str) -> Result<String, String> {
 fn valid_access_token(id: &str) -> Result<String, String> {
     let mut tokens = load_tokens()?.ok_or("Connect a Gmail account in Settings first.")?;
     if tokens.expires_at_ms <= Utc::now().timestamp_millis().saturating_add(60_000) {
-        let client = oauth_client(id)?;
+        let client = oauth_client(id, CLIENT_SECRET)?;
         let refresh = oauth2::RefreshToken::new(tokens.refresh_token.clone());
         let response = client
             .exchange_refresh_token(&refresh)
-            .request(oauth2::ureq::http_client)
+            .request(oauth2::reqwest::http_client)
             .map_err(|e| {
-                format!("Could not refresh the Gmail authorization. Reconnect in Settings: {e}")
+                format!(
+                    "Could not refresh Gmail authorization. Reconnect in Settings.\nCause: {}\nNext: Confirm the Google Cloud Desktop OAuth client is still enabled and this account has Gmail access.",
+                    error_chain(&e)
+                )
             })?;
         tokens.access_token = response.access_token().secret().to_string();
         if let Some(refresh) = response.refresh_token() {
@@ -696,6 +794,98 @@ pub fn extract_transaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    fn token_response(
+        request: oauth2::HttpRequest,
+        expected_secret: Option<&str>,
+    ) -> Result<oauth2::HttpResponse, std::io::Error> {
+        let fields: std::collections::HashMap<_, _> = url::form_urlencoded::parse(&request.body)
+            .into_owned()
+            .collect();
+        assert_eq!(
+            fields.get("client_id").map(String::as_str),
+            Some("test.apps.googleusercontent.com")
+        );
+        assert_eq!(
+            fields.get("client_secret").map(String::as_str),
+            expected_secret
+        );
+        assert!(!request.headers.contains_key("authorization"));
+        Ok(oauth2::HttpResponse {
+            status_code: reqwest::StatusCode::OK,
+            headers: Default::default(),
+            body:
+                br#"{"access_token":"test-access-token","token_type":"Bearer","expires_in":3600}"#
+                    .to_vec(),
+        })
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn desktop_credentials_are_sent_in_code_exchange_and_refresh() {
+        let client = oauth_client(
+            "test.apps.googleusercontent.com",
+            Some("test-only-desktop-secret"),
+        )
+        .unwrap()
+        .set_redirect_uri(RedirectUrl::new("http://127.0.0.1:12345/".into()).unwrap());
+        let (_, verifier) = PkceCodeChallenge::new_random_sha256();
+        client
+            .exchange_code(AuthorizationCode::new("test-code".into()))
+            .set_pkce_verifier(verifier)
+            .request(|request| {
+                let fields: std::collections::HashMap<_, _> =
+                    url::form_urlencoded::parse(&request.body)
+                        .into_owned()
+                        .collect();
+                assert!(fields.contains_key("code_verifier"));
+                assert_eq!(
+                    fields.get("redirect_uri").map(String::as_str),
+                    Some("http://127.0.0.1:12345/")
+                );
+                token_response(request, Some("test-only-desktop-secret"))
+            })
+            .unwrap();
+        client
+            .exchange_refresh_token(&oauth2::RefreshToken::new("test-refresh-token".into()))
+            .request(|request| token_response(request, Some("test-only-desktop-secret")))
+            .unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn unconfigured_desktop_secret_is_not_sent() {
+        for secret in [None, Some("   ")] {
+            oauth_client("test.apps.googleusercontent.com", secret)
+                .unwrap()
+                .exchange_refresh_token(&oauth2::RefreshToken::new("test-refresh-token".into()))
+                .request(|request| token_response(request, None))
+                .unwrap();
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn token_exchange_diagnostic_explains_oauth_client_setup() {
+        let response = oauth2::basic::BasicErrorResponse::new(
+            oauth2::basic::BasicErrorResponseType::InvalidClient,
+            Some("The OAuth client was not found.".into()),
+            None,
+        );
+        let error = token_exchange_error(oauth2::RequestTokenError::ServerResponse(response));
+
+        assert!(error.contains("Google sign-in failed during token exchange."));
+        assert!(error.contains("Cause: invalid_client: The OAuth client was not found."));
+        assert!(error.contains("OAuth Client ID for a Desktop app"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn diagnostics_remove_control_characters_and_limit_remote_text() {
+        assert_eq!(sanitized_diagnostic("bad\r\nclient"), "bad  client");
+        assert_eq!(sanitized_diagnostic(&"x".repeat(300)).len(), 240);
+    }
 
     #[test]
     fn extracts_upi_debit_fields_and_normalizes_amount() {

@@ -84,8 +84,8 @@ history.
 
 PaisaPilot uses a Google OAuth **Desktop app** client and requests only the
 `https://www.googleapis.com/auth/gmail.readonly` scope. OAuth tokens are stored
-in Windows Credential Manager. No Google password, OTP, client secret, or
-send-mail permission is requested.
+in Windows Credential Manager. End users are not asked for a Google password,
+OTP, OAuth credentials, or send-mail permission.
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create/select
    a project and enable the **Gmail API**.
@@ -97,12 +97,13 @@ send-mail permission is requested.
    create a Web application client or add a fixed web redirect URI. PaisaPilot
    starts a temporary loopback callback on `127.0.0.1` during Google sign-in,
    following Google's native-app OAuth flow.
-4. Configure the app publisher's public OAuth client ID in a local `.env` file
+4. Configure the app publisher's Desktop OAuth credentials in a local `.env` file
    at the repository root. Create or edit `.env` in your editor and add this
    line, replacing the example value with your Desktop app Client ID:
 
    ```dotenv
    PAISAPILOT_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+   PAISAPILOT_GOOGLE_CLIENT_SECRET=your-desktop-client-secret
    ```
 
    Save the file as `.env` (not `.env.txt`). The Tauri/Rust build reads the
@@ -114,8 +115,14 @@ send-mail permission is requested.
    ```
 
    The Rust build loads this value from `.env` for development and production
-   builds. `.env` is ignored by Git; do not commit it. The Client ID is public
-   app configuration, not a secret. Do not add a client secret or OAuth tokens.
+   builds. Use the `client_id` and matching `client_secret` from the downloaded
+   **Desktop app** credentials JSON, not from a Web application client.
+   The secret is included in token exchange and refresh requests; PKCE is still
+   used during sign-in. `.env` is ignored by Git; do not commit it or tokens.
+   Desktop credentials embedded in a distributed executable are recoverable:
+   this is a public installed-app client, not confidential server credentials.
+   Never use a backend/Web client secret here. These credentials are compiled
+   only into Windows builds, not the Android APK.
    For an installer, the publisher must build with its configured `.env`.
 5. In **Settings → Gmail transaction import**, users select **Sign in with
    Google** and finish consent in their browser. They do not paste credentials.
@@ -131,6 +138,13 @@ send-mail permission is requested.
 Official references: [Gmail API](https://developers.google.com/gmail/api),
 [Gmail API authorization](https://developers.google.com/gmail/api/auth), and
 [OAuth 2.0 for desktop applications](https://developers.google.com/identity/protocols/oauth2/native-app).
+
+If Google sign-in fails, Settings shows a short error and an expandable
+**diagnostic log** with the failing OAuth step and suggested checks. It does
+not include authorization codes or tokens. For token-exchange errors, confirm
+the `.env` Client ID and matching client secret belong to a **Desktop app** OAuth client, Gmail API is
+enabled, and the account is added as a consent-screen test user; rebuild the
+desktop app after changing `.env`.
 
 ## Android APK setup and releases
 
