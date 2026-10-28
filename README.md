@@ -137,8 +137,4 @@ Before publishing the draft:
 
 ## Download for Windows 11
 
-[**Download PaisaPilot Installer (Windows x64)**](https://github.com/vikasgowdaja/paisa-pilot/releases/download/v1.0.0/EXACT-INSTALLER-FILENAME.exe)
-
-Download the installer, run it, and follow the setup instructions.
-No Rust, Node.js or Visual Studio installation is required.
-
+[Download PaisaPilot Installer (Windows x64)](https://github.com/vikasgowdaja/paisa-pilot/releases/download/v1.0.0/ACTUAL-INSTALLER-FILENAME.exe)
