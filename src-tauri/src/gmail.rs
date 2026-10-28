@@ -200,6 +200,94 @@ fn oauth_client(id: &str) -> Result<BasicClient, String> {
 }
 
 #[cfg(windows)]
+fn oauth_setup_hint(error_code: &str) -> &'static str {
+    match error_code {
+        "invalid_client" => {
+            "Check that this build uses the OAuth Client ID for a Desktop app in the correct Google Cloud project."
+        }
+        "invalid_grant" => {
+            "Retry sign-in. Confirm the Desktop OAuth Client ID matches this build and the Windows date and time are correct."
+        }
+        "unauthorized_client" => {
+            "Check that the OAuth client is a Desktop app, Gmail API is enabled, and this Google account is listed as a test user."
+        }
+        "invalid_request" => {
+            "Check the Desktop OAuth client configuration and rebuild after changing the Client ID."
+        }
+        _ => {
+            "Check the Google Cloud OAuth client, Gmail API, and consent-screen test-user configuration."
+        }
+    }
+}
+
+#[cfg(windows)]
+fn sanitized_diagnostic(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .take(240)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+#[cfg(windows)]
+fn error_chain(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut parts = Vec::new();
+    let mut current = Some(error);
+    while let Some(cause) = current {
+        let detail = sanitized_diagnostic(&cause.to_string());
+        if !detail.is_empty() && parts.last() != Some(&detail) {
+            parts.push(detail);
+        }
+        if parts.len() == 3 {
+            break;
+        }
+        current = cause.source();
+    }
+    parts.join(": ")
+}
+
+#[cfg(windows)]
+fn token_exchange_error(
+    error: oauth2::basic::BasicRequestTokenError<oauth2::reqwest::HttpClientError>,
+) -> String {
+    let (cause, next_step) = match error {
+        oauth2::RequestTokenError::ServerResponse(response) => {
+            let code = response.error().to_string();
+            let description = response
+                .error_description()
+                .map(|value| sanitized_diagnostic(value))
+                .filter(|value| !value.is_empty());
+            let cause = match description {
+                Some(description) => format!("{code}: {description}"),
+                None => code.clone(),
+            };
+            (cause, oauth_setup_hint(&code))
+        }
+        oauth2::RequestTokenError::Request(source) => (
+            format!("Network/TLS request failed: {}", error_chain(&source)),
+            "Check your internet connection, VPN/proxy, and firewall access to oauth2.googleapis.com.",
+        ),
+        oauth2::RequestTokenError::Parse(source, _) => (
+            format!("Google returned an unreadable token response: {source}"),
+            "Retry sign-in. If it continues, check Google's OAuth status and verify the configured Desktop Client ID.",
+        ),
+        oauth2::RequestTokenError::Other(detail) => (
+            sanitized_diagnostic(&detail),
+            "Check the Google Cloud OAuth client configuration and retry sign-in.",
+        ),
+    };
+    format!("Google sign-in failed during token exchange.\nCause: {cause}\nNext: {next_step}")
+}
+
+#[cfg(windows)]
 fn callback(listener: &TcpListener, expected_state: &str) -> Result<String, String> {
     listener
         .set_nonblocking(true)
@@ -310,8 +398,8 @@ pub fn connect(id: &str) -> Result<String, String> {
     let token = client
         .exchange_code(AuthorizationCode::new(code))
         .set_pkce_verifier(verifier)
-        .request(oauth2::ureq::http_client)
-        .map_err(|e| format!("Google token exchange failed: {e}"))?;
+        .request(oauth2::reqwest::http_client)
+        .map_err(token_exchange_error)?;
     let access_token = token.access_token().secret().to_string();
     let refresh_token = token.refresh_token().map(|value| value.secret().to_string())
         .ok_or("Google did not return a refresh token. Revoke PaisaPilot access in Google Account settings and try again.")?;
@@ -337,9 +425,12 @@ fn valid_access_token(id: &str) -> Result<String, String> {
         let refresh = oauth2::RefreshToken::new(tokens.refresh_token.clone());
         let response = client
             .exchange_refresh_token(&refresh)
-            .request(oauth2::ureq::http_client)
+            .request(oauth2::reqwest::http_client)
             .map_err(|e| {
-                format!("Could not refresh the Gmail authorization. Reconnect in Settings: {e}")
+                format!(
+                    "Could not refresh Gmail authorization. Reconnect in Settings.\nCause: {}\nNext: Confirm the Google Cloud Desktop OAuth client is still enabled and this account has Gmail access.",
+                    error_chain(&e)
+                )
             })?;
         tokens.access_token = response.access_token().secret().to_string();
         if let Some(refresh) = response.refresh_token() {
@@ -696,6 +787,28 @@ pub fn extract_transaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn token_exchange_diagnostic_explains_oauth_client_setup() {
+        let response = oauth2::basic::BasicErrorResponse::new(
+            oauth2::basic::BasicErrorResponseType::InvalidClient,
+            Some("The OAuth client was not found.".into()),
+            None,
+        );
+        let error = token_exchange_error(oauth2::RequestTokenError::ServerResponse(response));
+
+        assert!(error.contains("Google sign-in failed during token exchange."));
+        assert!(error.contains("Cause: invalid_client: The OAuth client was not found."));
+        assert!(error.contains("OAuth Client ID for a Desktop app"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn diagnostics_remove_control_characters_and_limit_remote_text() {
+        assert_eq!(sanitized_diagnostic("bad\r\nclient"), "bad  client");
+        assert_eq!(sanitized_diagnostic(&"x".repeat(300)).len(), 240);
+    }
 
     #[test]
     fn extracts_upi_debit_fields_and_normalizes_amount() {

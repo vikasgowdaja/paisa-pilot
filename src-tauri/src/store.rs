@@ -244,6 +244,7 @@ impl Store {
         Ok(())
     }
 
+    #[cfg(any(target_os = "android", test))]
     pub fn gmail_account_email(&self) -> Result<String> {
         self.conn
             .query_row(

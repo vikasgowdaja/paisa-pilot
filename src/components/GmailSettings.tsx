@@ -12,6 +12,7 @@ export function GmailSettings() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [errorSummary, ...errorDetails] = error.split('\n')
 
   const refresh = useCallback(async () => {
     try {
@@ -57,7 +58,14 @@ export function GmailSettings() {
         </div>
         <p>Requests Gmail read-only access only. Messages are parsed on this device. Windows stores OAuth tokens in Credential Manager; Android uses Google Play services and keeps access tokens in memory only. PaisaPilot never asks for your Google password or OTP. Email transactions are not added to your ledger until you approve them.</p>
         {!isTauri() && <p role="status">Open the PaisaPilot app to sign in; browser preview cannot access native Gmail authorization.</p>}
-        {error && <p role="alert" className="form-error">{error}<button className="gmail-retry" onClick={() => void refresh()}>Retry</button></p>}
+        {error && <div role="alert" className="form-error">
+          <p>{errorSummary}</p>
+          {errorDetails.length > 0 && <details className="gmail-error-details">
+            <summary>Show diagnostic log</summary>
+            <pre>{errorDetails.join('\n')}</pre>
+          </details>}
+          <button className="gmail-retry" onClick={() => void refresh()}>Retry</button>
+        </div>}
         {notice && <p role="status" className="gmail-notice">{notice}</p>}
       </div>
     </section>

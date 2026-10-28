@@ -132,6 +132,13 @@ Official references: [Gmail API](https://developers.google.com/gmail/api),
 [Gmail API authorization](https://developers.google.com/gmail/api/auth), and
 [OAuth 2.0 for desktop applications](https://developers.google.com/identity/protocols/oauth2/native-app).
 
+If Google sign-in fails, Settings shows a short error and an expandable
+**diagnostic log** with the failing OAuth step and suggested checks. It does
+not include authorization codes or tokens. For token-exchange errors, confirm
+the `.env` Client ID belongs to a **Desktop app** OAuth client, Gmail API is
+enabled, and the account is added as a consent-screen test user; rebuild the
+desktop app after changing `.env`.
+
 ## Android APK setup and releases
 
 The Android app uses native Google authorization through Google Play services

@@ -123,6 +123,9 @@ tbody tr:hover { background: #fcfdf9; }
 .settings-content p { color: #8a977c; line-height: 1.9; margin-top: 17px; }
 .gmail-settings > p { margin-top: 14px; }
 .gmail-retry { margin-left: 10px; text-decoration: underline; }
+.gmail-error-details { margin-top: 8px; }
+.gmail-error-details summary { cursor: pointer; font-weight: 600; }
+.gmail-error-details pre { margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .gmail-notice { color: #3f7039 !important; }
 .gmail-review { overflow: hidden; }
 .gmail-candidate-list { display: flex; flex-direction: column; }
