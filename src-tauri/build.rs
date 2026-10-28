@@ -15,9 +15,18 @@ fn main() {
     let target_os =
         env::var("CARGO_CFG_TARGET_OS").expect("Cargo provides the target operating system");
     if target_os == "windows" {
-        println!("cargo:rerun-if-env-changed=PAISAPILOT_GOOGLE_CLIENT_ID");
-        if let Ok(client_id) = env::var("PAISAPILOT_GOOGLE_CLIENT_ID") {
-            println!("cargo:rustc-env=PAISAPILOT_GOOGLE_CLIENT_ID={client_id}");
+        for key in [
+            "PAISAPILOT_GOOGLE_CLIENT_ID",
+            "PAISAPILOT_GOOGLE_CLIENT_SECRET",
+        ] {
+            println!("cargo:rerun-if-env-changed={key}");
+            if let Ok(value) = env::var(key) {
+                assert!(
+                    !value.contains(['\r', '\n']),
+                    "{key} must be a single-line value"
+                );
+                println!("cargo:rustc-env={key}={value}");
+            }
         }
     }
 
