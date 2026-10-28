@@ -135,6 +135,13 @@ Before publishing the draft:
 7. Record a SHA-256 checksum and attach it if your organization permits.
 8. Publish the release, then check its asset download link while signed out.
 
-## Download for Windows 11
+## Download for Windows
 
-[Download PaisaPilot Installer (Windows x64)](https://github.com/vikasgowdaja/paisa-pilot/releases/download/v1.0.0/ACTUAL-INSTALLER-FILENAME.exe)
+[**Download PaisaPilot for Windows 11 (x64)**](https://github.com/vikasgowdaja/paisa-pilot/releases/latest)
+
+1. Open the link above.
+2. Under **Assets**, download the setup `.exe`.
+3. Run the installer and launch PaisaPilot from the Start menu.
+
+No Rust, Node.js or Visual Studio installation is required.
+Your transaction data stays locally on your computer.
