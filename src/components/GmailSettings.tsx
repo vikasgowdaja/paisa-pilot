@@ -22,7 +22,7 @@ export function GmailSettings() {
   }, [])
 
   useEffect(() => {
-    // The state update follows an asynchronous desktop query.
+    // The state update follows an asynchronous native query.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isTauri()) void refresh()
   }, [refresh])
@@ -43,7 +43,7 @@ export function GmailSettings() {
     try {
       await invoke('gmail_disconnect')
       setStatus({ connected: false, email: '' })
-      setNotice('Gmail access removed from this device.')
+      setNotice('PaisaPilot is disconnected from Gmail on this device.')
     } catch (e) { setError(message(e)) } finally { setBusy(false) }
   }
 
@@ -55,8 +55,8 @@ export function GmailSettings() {
           <Button disabled={!isTauri() || busy || status.connected} onClick={() => void connect()}>{busy ? 'Connecting...' : 'Sign in with Google'}</Button>
           {status.connected && <Button disabled={busy} variant="outline" onClick={() => void disconnect()}><Unlink /> Disconnect {status.email}</Button>}
         </div>
-        <p>Requests Gmail read-only access only. Messages are parsed on this device; tokens are stored in Windows Credential Manager. PaisaPilot never asks for your Google password or OTP. Email transactions are not added to your ledger until you approve them.</p>
-        {!isTauri() && <p role="status">Open PaisaPilot Desktop to sign in; browser preview cannot access the secure token store.</p>}
+        <p>Requests Gmail read-only access only. Messages are parsed on this device. Windows stores OAuth tokens in Credential Manager; Android uses Google Play services and keeps access tokens in memory only. PaisaPilot never asks for your Google password or OTP. Email transactions are not added to your ledger until you approve them.</p>
+        {!isTauri() && <p role="status">Open the PaisaPilot app to sign in; browser preview cannot access native Gmail authorization.</p>}
         {error && <p role="alert" className="form-error">{error}<button className="gmail-retry" onClick={() => void refresh()}>Retry</button></p>}
         {notice && <p role="status" className="gmail-notice">{notice}</p>}
       </div>

@@ -9,6 +9,10 @@
     "tauri": "tauri",
     "desktop": "tauri dev",
     "desktop:build": "tauri build",
+    "android:init": "tauri android init",
+    "android:prepare": "node scripts/prepare-android.mjs",
+    "android:test": "node --test scripts/prepare-android.test.mjs",
+    "android:build": "node scripts/prepare-android.mjs --signing && tauri android build --apk --target aarch64",
     "lint": "eslint .",
     "preview": "vite preview"
   },

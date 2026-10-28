@@ -1,6 +1,6 @@
 # PaisaPilot
 
-A local-first Windows expense tracker built with Rust, Tauri 2, React,
+A local-first Windows and Android expense tracker built with Rust, Tauri 2, React,
 TypeScript, Tailwind CSS, shadcn-style UI components, Lucide and SQLite.
 
 ## Download and install
@@ -9,6 +9,8 @@ Visit [GitHub Releases](https://github.com/vikasgowdaja/paisa-pilot/releases).
 Once the Windows release is published, download the `PaisaPilot` x64 setup
 executable from its **Assets**, run it, and launch PaisaPilot from the Start menu.
 End users do not need Rust, Node.js or Visual Studio.
+For Android, download the signed arm64 APK from the same release's **Assets**,
+install it, and use **Sign in with Google** for optional Gmail import.
 
 **Release status:** the Windows production packaging command succeeded locally.
 The installer is not yet attached or published. A draft release is not visible
@@ -50,7 +52,7 @@ month. No sample transactions are inserted into the real database.
 
 ## Privacy and backup
 
-The database is stored in the application's per-user Windows data directory:
+On Windows, the database is stored in the application's per-user data directory:
 
 ```text
 %APPDATA%\com.paisapilot.desktop\paisapilot.sqlite3
@@ -59,15 +61,24 @@ The database is stored in the application's per-user Windows data directory:
 The exact path is shown in **Settings**. Close every PaisaPilot window before
 copying the database for backup or restoring a backup. Keep backups private.
 The database is not encrypted; use Windows account security and device
-encryption. CSV files also contain private financial information.
+encryption. On Android, the database is in the app's private application
+storage; the database is not encrypted by PaisaPilot, so use Android's device
+screen lock and encryption. CSV files also contain private financial
+information.
 
 Gmail OAuth access is read-only. OAuth tokens are stored in Windows Credential
-Manager, not in the SQLite database. Sync downloads matching email content for
-local parsing; PaisaPilot stores message IDs, sender/subject, extracted fields
-and review state locally, not the complete message body. The Gmail API receives
-requests when you sync. Transaction details are not sent to external AI
-services. Disconnecting removes the saved OAuth token; it does not delete
-already imported transactions or Gmail review history.
+Manager on Windows and are not stored in the SQLite database. Android uses
+Google Play services for authorization and keeps access tokens in memory only;
+tokens are not exposed to the web UI or persisted by PaisaPilot. Sync downloads
+matching email content for local parsing; PaisaPilot stores message IDs,
+sender/subject, connected Gmail address, extracted fields and review state
+locally, not the complete message body. The Gmail API receives requests when
+you sync. Transaction details are not sent to external AI services.
+Disconnecting removes the saved OAuth token on Windows, revokes Android
+authorization, and clears the saved account status. To revoke the Google grant
+for a Windows build, remove PaisaPilot in Google Account security settings.
+Disconnecting does not delete already imported transactions or Gmail review
+history.
 
 ## Gmail transaction import setup
 
@@ -120,6 +131,70 @@ send-mail permission is requested.
 Official references: [Gmail API](https://developers.google.com/gmail/api),
 [Gmail API authorization](https://developers.google.com/gmail/api/auth), and
 [OAuth 2.0 for desktop applications](https://developers.google.com/identity/protocols/oauth2/native-app).
+
+## Android APK setup and releases
+
+The Android app uses native Google authorization through Google Play services
+and requests only Gmail's `gmail.readonly` scope. It does not use a Web OAuth
+client secret, and end users do not configure OAuth credentials. Android
+authorization uses the app's package name and signing-certificate fingerprint;
+the public Android OAuth client is registered in Google Cloud, not bundled as a
+secret in the APK. The short-lived Gmail access token is passed directly to
+Rust for API requests and is not saved to disk.
+
+### Publisher setup
+
+1. In Google Cloud Console, enable the Gmail API and configure the OAuth consent
+   screen. Add test users while the consent screen is in Testing. Gmail
+   read-only access may require Google verification before broad public use.
+2. Create and protect a release signing key locally. Use JDK `keytool` and keep
+   the key outside the repository:
+
+   ```powershell
+   keytool -genkeypair -v -keystore "$HOME\paisapilot-release.jks" -alias paisapilot -keyalg RSA -keysize 2048 -validity 10000
+   keytool -list -v -keystore "$HOME\paisapilot-release.jks" -alias paisapilot
+   ```
+
+3. Create an **Android** OAuth client in Google Cloud for package
+   `com.paisapilot.desktop` and the release key's SHA-1 fingerprint. Local debug
+   builds use a different signing key and need its fingerprint registered
+   separately for local Gmail sign-in tests.
+4. In the repository's **Settings → Secrets and variables → Actions**, add these
+   repository secrets:
+
+   - `ANDROID_KEYSTORE_BASE64` — base64 encoding of the release `.jks` file.
+     To copy the value without printing it in the console, run:
+     `[Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME\paisapilot-release.jks")) | Set-Clipboard`
+     in PowerShell, then paste it into the secret field.
+   - `ANDROID_KEYSTORE_PASSWORD` — the key and keystore password.
+   - `ANDROID_KEY_ALIAS` — `paisapilot` for the example command above.
+
+   These signing secrets are only used by GitHub Actions. Never commit or
+   upload the keystore or password. Rotate/reissue the signing key only with a
+   planned app migration; losing it prevents signing updates under the same app
+   identity.
+5. Publish a GitHub Release. The **Android APK release** workflow builds a
+   signed arm64 APK and attaches it to that release. It does not run until all
+   three Actions secrets and the matching Google Cloud Android OAuth client are
+   configured.
+
+### Local Android development
+
+Install Node.js 22, Rust stable, JDK 17, Android SDK Platform 35, and Android
+NDK 28.2. Configure `ANDROID_HOME` and `NDK_HOME`. From the repository:
+
+```powershell
+npm ci
+npm run android:init
+npm run android:prepare
+npm run tauri -- android dev
+```
+
+For a signed local release APK, set `PAISAPILOT_ANDROID_KEYSTORE`,
+`PAISAPILOT_ANDROID_KEYSTORE_PASSWORD`, and `PAISAPILOT_ANDROID_KEY_ALIAS` in
+the build environment, then run `npm run android:build`. Never put these values
+in `.env` or commit them. Android's OAuth registration must match the signing
+certificate used by each debug or release build for Google sign-in.
 
 ## CSV format
 
