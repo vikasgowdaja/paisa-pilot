@@ -192,9 +192,11 @@ npm run tauri -- android dev
 
 For a signed local release APK, set `PAISAPILOT_ANDROID_KEYSTORE`,
 `PAISAPILOT_ANDROID_KEYSTORE_PASSWORD`, and `PAISAPILOT_ANDROID_KEY_ALIAS` in
-the build environment, then run `npm run android:build`. Never put these values
-in `.env` or commit them. Android's OAuth registration must match the signing
-certificate used by each debug or release build for Google sign-in.
+the build environment, then run `npm run android:build`. That command runs
+`android:init` before patching/building, so it can bootstrap `src-tauri/gen/android`
+on first use. Never put these values in `.env` or commit them. Android's OAuth
+registration must match the signing certificate used by each debug or release
+build for Google sign-in.
 
 ## CSV format
 

@@ -23,7 +23,7 @@ export async function prepareAndroid(projectDirectory, { signing = false } = {})
   await mkdir(dirname(pluginDestination), { recursive: true })
   await copyFile(pluginSource, pluginDestination)
 
-  let manifest = await readFile(manifestFile, 'utf8')
+  let manifest = await readRequiredFile(manifestFile)
   const internetPermission = '<uses-permission android:name="android.permission.INTERNET" />'
   if (!manifest.includes(internetPermission)) {
     const applicationTag = /(<application\b)/
@@ -34,7 +34,7 @@ export async function prepareAndroid(projectDirectory, { signing = false } = {})
     await writeFile(manifestFile, manifest)
   }
 
-  let gradle = await readFile(gradleFile, 'utf8')
+  let gradle = await readRequiredFile(gradleFile)
   const dependency = 'implementation("com.google.android.gms:play-services-auth:21.4.0")'
   if (!gradle.includes(dependency)) {
     const dependenciesBlock = /(^[ \t]*dependencies[ \t]*\{)/m
@@ -49,6 +49,20 @@ export async function prepareAndroid(projectDirectory, { signing = false } = {})
     gradle = configureReleaseSigning(gradle, gradleFile)
   }
   await writeFile(gradleFile, gradle)
+}
+
+async function readRequiredFile(filePath) {
+  try {
+    return await readFile(filePath, 'utf8')
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      throw new Error(
+        `Android project files are missing at ${filePath}. Run "npm run android:init" and retry.`,
+        { cause: error },
+      )
+    }
+    throw error
+  }
 }
 
 function configureNdkVersion(gradle, gradleFile) {
