@@ -134,3 +134,11 @@ Before publishing the draft:
    Never attach your database, private exports, or other personal files.
 7. Record a SHA-256 checksum and attach it if your organization permits.
 8. Publish the release, then check its asset download link while signed out.
+
+## Download for Windows 11
+
+[**Download PaisaPilot Installer (Windows x64)**](https://github.com/vikasgowdaja/paisa-pilot/releases/download/v1.0.0/EXACT-INSTALLER-FILENAME.exe)
+
+Download the installer, run it, and follow the setup instructions.
+No Rust, Node.js or Visual Studio installation is required.
+
