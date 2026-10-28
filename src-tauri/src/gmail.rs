@@ -1,5 +1,6 @@
 use base64::Engine;
 use chrono::{DateTime, NaiveDate, Utc};
+#[cfg(windows)]
 use oauth2::{
     basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge,
     RedirectUrl, Scope, TokenResponse, TokenUrl,
@@ -7,19 +8,26 @@ use oauth2::{
 use regex::Regex;
 use reqwest::blocking::{Client, Response};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::sync::OnceLock;
+#[cfg(windows)]
 use std::{
     io::{BufRead, BufReader, Write},
     net::TcpListener,
-    sync::OnceLock,
     time::{Duration, Instant},
 };
+#[cfg(windows)]
 use url::Url;
 
+#[cfg(windows)]
 const GMAIL_READONLY_SCOPE: &str = "https://www.googleapis.com/auth/gmail.readonly";
+#[cfg(windows)]
 const CREDENTIAL_SERVICE: &str = "PaisaPilot Gmail";
+#[cfg(windows)]
 const CREDENTIAL_USER: &str = "oauth-tokens";
+#[cfg(windows)]
 const CLIENT_ID: Option<&str> = option_env!("PAISAPILOT_GOOGLE_CLIENT_ID");
 
+#[cfg(windows)]
 #[derive(Debug, Deserialize, Serialize)]
 struct OAuthTokens {
     access_token: String,
@@ -103,6 +111,7 @@ fn gmail_http_client() -> Result<Client, String> {
         .map_err(|e| format!("Could not prepare the Gmail connection: {e}"))
 }
 
+#[cfg(windows)]
 fn client_id(id: &str) -> Result<ClientId, String> {
     let id = id.trim();
     if id.is_empty() || id.len() > 300 || !id.ends_with(".apps.googleusercontent.com") {
@@ -111,6 +120,7 @@ fn client_id(id: &str) -> Result<ClientId, String> {
     Ok(ClientId::new(id.to_string()))
 }
 
+#[cfg(windows)]
 pub fn configured_client_id() -> Result<&'static str, String> {
     CLIENT_ID
         .filter(|id| !id.trim().is_empty())
@@ -119,11 +129,13 @@ pub fn configured_client_id() -> Result<&'static str, String> {
         })
 }
 
+#[cfg(windows)]
 fn credential_entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new(CREDENTIAL_SERVICE, CREDENTIAL_USER)
         .map_err(|e| format!("Could not access Windows Credential Manager: {e}"))
 }
 
+#[cfg(windows)]
 fn store_tokens(tokens: &OAuthTokens) -> Result<(), String> {
     let json =
         serde_json::to_string(tokens).map_err(|e| format!("Could not encode OAuth tokens: {e}"))?;
@@ -132,6 +144,7 @@ fn store_tokens(tokens: &OAuthTokens) -> Result<(), String> {
     })
 }
 
+#[cfg(windows)]
 fn load_tokens() -> Result<Option<OAuthTokens>, String> {
     let entry = credential_entry()?;
     let secret = match entry.get_password() {
@@ -148,6 +161,7 @@ fn load_tokens() -> Result<Option<OAuthTokens>, String> {
     Ok(Some(tokens))
 }
 
+#[cfg(windows)]
 pub fn auth_status() -> Result<AuthStatus, String> {
     Ok(match load_tokens()? {
         Some(tokens) => AuthStatus {
@@ -161,6 +175,7 @@ pub fn auth_status() -> Result<AuthStatus, String> {
     })
 }
 
+#[cfg(windows)]
 pub fn disconnect() -> Result<(), String> {
     match credential_entry()?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -170,6 +185,7 @@ pub fn disconnect() -> Result<(), String> {
     }
 }
 
+#[cfg(windows)]
 fn oauth_client(id: &str) -> Result<BasicClient, String> {
     Ok(BasicClient::new(
         client_id(id)?,
@@ -183,6 +199,7 @@ fn oauth_client(id: &str) -> Result<BasicClient, String> {
     ))
 }
 
+#[cfg(windows)]
 fn callback(listener: &TcpListener, expected_state: &str) -> Result<String, String> {
     listener
         .set_nonblocking(true)
@@ -268,6 +285,7 @@ fn callback(listener: &TcpListener, expected_state: &str) -> Result<String, Stri
     }
 }
 
+#[cfg(windows)]
 pub fn connect(id: &str) -> Result<String, String> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|e| format!("Could not start the local OAuth callback: {e}"))?;
@@ -311,6 +329,7 @@ pub fn connect(id: &str) -> Result<String, String> {
     Ok(email)
 }
 
+#[cfg(windows)]
 fn valid_access_token(id: &str) -> Result<String, String> {
     let mut tokens = load_tokens()?.ok_or("Connect a Gmail account in Settings first.")?;
     if tokens.expires_at_ms <= Utc::now().timestamp_millis().saturating_add(60_000) {
@@ -344,7 +363,7 @@ fn json_response<T: DeserializeOwned>(response: Response) -> Result<T, String> {
         .map_err(|e| format!("Gmail returned an invalid response: {e}"))
 }
 
-fn profile_email(access_token: &str) -> Result<String, String> {
+pub fn profile_email(access_token: &str) -> Result<String, String> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Profile {
@@ -374,12 +393,21 @@ pub fn search_after_ms(last_sync_ms: Option<i64>) -> String {
     )
 }
 
+#[cfg(windows)]
 pub fn list_message_ids(
     id: &str,
     query: &str,
     page_token: Option<&str>,
 ) -> Result<(Vec<String>, Option<String>), String> {
     let access_token = valid_access_token(id)?;
+    list_message_ids_with_token(&access_token, query, page_token)
+}
+
+pub fn list_message_ids_with_token(
+    access_token: &str,
+    query: &str,
+    page_token: Option<&str>,
+) -> Result<(Vec<String>, Option<String>), String> {
     let mut request = gmail_http_client()?
         .get("https://gmail.googleapis.com/gmail/v1/users/me/messages")
         .bearer_auth(access_token)
@@ -430,8 +458,16 @@ fn collect_text(
     Ok(())
 }
 
+#[cfg(windows)]
 pub fn fetch_message(id: &str, message_id: &str) -> Result<Option<GmailMessage>, String> {
     let access_token = valid_access_token(id)?;
+    fetch_message_with_token(&access_token, message_id)
+}
+
+pub fn fetch_message_with_token(
+    access_token: &str,
+    message_id: &str,
+) -> Result<Option<GmailMessage>, String> {
     let response = gmail_http_client()?
         .get(format!(
             "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}",

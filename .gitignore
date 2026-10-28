@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 src-tauri/target
+src-tauri/gen
+src-tauri/android/keystore.properties
+src-tauri/android/*.jks
 .env
 *.sqlite3
 *.sqlite3-shm

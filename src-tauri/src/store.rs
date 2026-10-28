@@ -196,7 +196,7 @@ impl Store {
         let mut version: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(db_error)?;
-        if version > 2 {
+        if version > 3 {
             return Err("Database was created by a newer PaisaPilot version.".into());
         }
         if version == 0 {
@@ -209,6 +209,12 @@ impl Store {
         if version < 2 {
             let tx = conn.transaction().map_err(db_error)?;
             tx.execute_batch(include_str!("../migrations/002_gmail_import.sql"))
+                .map_err(db_error)?;
+            tx.commit().map_err(db_error)?;
+        }
+        if version < 3 {
+            let tx = conn.transaction().map_err(db_error)?;
+            tx.execute_batch(include_str!("../migrations/003_gmail_account.sql"))
                 .map_err(db_error)?;
             tx.commit().map_err(db_error)?;
         }
@@ -233,6 +239,29 @@ impl Store {
             .execute(
                 "UPDATE gmail_settings SET last_sync_ms=?1 WHERE id=1",
                 [synced_at_ms],
+            )
+            .map_err(db_error)?;
+        Ok(())
+    }
+
+    pub fn gmail_account_email(&self) -> Result<String> {
+        self.conn
+            .query_row(
+                "SELECT account_email FROM gmail_settings WHERE id=1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db_error)
+    }
+
+    pub fn set_gmail_account_email(&mut self, email: &str) -> Result<()> {
+        if email.len() > 254 || (!email.is_empty() && !email.contains('@')) {
+            return Err("Google returned an invalid Gmail account address.".into());
+        }
+        self.conn
+            .execute(
+                "UPDATE gmail_settings SET account_email=?1 WHERE id=1",
+                [email],
             )
             .map_err(db_error)?;
         Ok(())
@@ -891,5 +920,6 @@ mod tests {
         let store = Store::open(&path).unwrap();
         assert_eq!(store.snapshot("2026-10").unwrap().transactions.len(), 1);
         assert_eq!(store.gmail_candidates().unwrap().len(), 0);
+        assert_eq!(store.gmail_account_email().unwrap(), "");
     }
 }
