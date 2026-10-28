@@ -121,6 +121,29 @@ tbody tr:hover { background: #fcfdf9; }
 .settings-content h3 { font-size: 12px; margin-bottom: 10px; font-weight: 600; }
 .settings-content code { font-size: 11px; background: #f3f5ed; padding: 5px; border-radius: 4px; overflow-wrap: anywhere; }
 .settings-content p { color: #8a977c; line-height: 1.9; margin-top: 17px; }
+.gmail-settings > p { margin-top: 14px; }
+.gmail-retry { margin-left: 10px; text-decoration: underline; }
+.gmail-notice { color: #3f7039 !important; }
+.gmail-review { overflow: hidden; }
+.gmail-candidate-list { display: flex; flex-direction: column; }
+.gmail-candidate { border-top: 1px solid #edf0e7; padding: 20px 23px; }
+.gmail-candidate-heading { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.gmail-candidate-heading h3 { font-size: 13px; font-weight: 600; margin-top: 6px; overflow-wrap: anywhere; }
+.gmail-candidate-heading p { color: #929b88; font-size: 10px; margin-top: 5px; }
+.gmail-type { color: #75816a; font-size: 9px; text-transform: uppercase; letter-spacing: .8px; }
+.gmail-status { color: #6d7f5e; background: #edf4e7; border-radius: 5px; padding: 5px 8px; white-space: nowrap; font-size: 9px; }
+.gmail-status.duplicate { color: #9c5d31; background: #fcf0e2; }
+.gmail-evidence { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; }
+.gmail-evidence span { background: #f3f5ef; border-radius: 5px; padding: 5px 7px; color: #77836d; font-size: 9px; }
+.gmail-edit-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin-top: 16px; }
+.gmail-edit-grid label { display: flex; flex-direction: column; gap: 6px; color: #68795c; font-size: 10px; }
+.gmail-edit-grid input, .gmail-edit-grid select { border: 1px solid #dce3d6; border-radius: 6px; background: white; padding: 8px; color: #31432a; font-size: 11px; }
+.gmail-edit-grid .gmail-description { grid-column: span 2; }
+.gmail-warning { background: #fff7ea; border-radius: 6px; color: #90623a; font-size: 10px; line-height: 1.6; margin-top: 14px; padding: 9px 11px; }
+.gmail-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 16px; }
+.gmail-actions button { font-size: 10px; }
+@media (max-width: 800px) { .gmail-edit-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 560px) { .gmail-candidate { padding: 17px 14px; } .gmail-edit-grid { grid-template-columns: 1fr; } .gmail-edit-grid .gmail-description { grid-column: auto; } .gmail-candidate-heading { flex-direction: column; } }
 .version-line { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #7b8b6b; }
 .version-line span { margin-left: auto; color: #a1ab94; font-size: 10px; }
 .collapsed { grid-template-columns: 76px minmax(0,1fr); }
