@@ -58,16 +58,18 @@ function App() {
 
   const refresh = useCallback(async () => {
     const current = ++request.current
-    setLoading(true)
     try {
-      if (!isTauri()) throw new Error('Open the PaisaPilot desktop app to access your database. Browser preview is not connected to Rust.')
-      const result = await invoke<Snapshot>('snapshot', { month })
+      const result = await (isTauri()
+        ? invoke<Snapshot>('snapshot', { month })
+        : Promise.reject(new Error('Open the PaisaPilot desktop app to access your database. Browser preview is not connected to Rust.')))
       if (current === request.current) { setData(result); setError('') }
     } catch (e) {
       if (current === request.current) { setData(null); setError(errorText(e)) }
     } finally { if (current === request.current) setLoading(false) }
   }, [month])
 
+  // Refresh only updates state after the asynchronous desktop command settles.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void refresh() }, [refresh])
 
   function startTransaction(transaction?: Transaction) {
@@ -157,10 +159,10 @@ function App() {
         <header className="topbar"><div className="flex items-center gap-3"><Button variant="ghost" size="icon" aria-label="Toggle sidebar" onClick={() => setCollapsed(!collapsed)}><Menu /></Button><span className="breadcrumb">Workspace <ChevronRight size={13} /> <strong>{page}</strong></span></div><span className="local-badge"><span /> Stored on your device</span></header>
         <main>
           <div className="page-heading"><div><div className="eyebrow">A LITTLE CLARITY. EVERY DAY.</div><h1>{page === 'Dashboard' ? 'Your money, at a glance.' : page}</h1><p>{page === 'Dashboard' ? 'Make room for what matters. Keep track of the rest.' : page === 'Transactions' ? 'Every rupee, with a place and a purpose.' : page === 'Accounts' ? 'A clear view of where your money lives.' : page === 'Categories' ? 'Simple categories for everyday life.' : 'Your workspace. Your data. Your control.'}</p></div>{(page === 'Dashboard' || page === 'Transactions') && <Button disabled={!data || busy} onClick={() => startTransaction()}><Plus /> Add transaction</Button>}{page === 'Accounts' && <Button disabled={!data || busy} onClick={() => { setFormError(''); setAccountDialog(true) }}><Plus /> Add account</Button>}</div>
-          {error && <div role="alert" className="message error">{error}<Button variant="ghost" size="sm" onClick={() => void refresh()}>Retry</Button></div>}
+          {error && <div role="alert" className="message error">{error}<Button variant="ghost" size="sm" onClick={() => { setLoading(true); void refresh() }}>Retry</Button></div>}
           {notice && <div role="status" className="message success">{notice}<button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={16} /></button></div>}
           {(page === 'Dashboard' || page === 'Transactions') && <>
-            <div className="period-row"><div><span className="section-label">MONTHLY OVERVIEW</span><span className="period-note"> A fresh perspective on your finances</span></div><label className="month-picker"><span className="sr-only">Select month</span><input aria-label="Select month" type="month" value={month} min="0001-01" max="9999-12" onChange={e => { if (e.target.value) setMonth(e.target.value) }} /></label></div>
+            <div className="period-row"><div><span className="section-label">MONTHLY OVERVIEW</span><span className="period-note"> A fresh perspective on your finances</span></div><label className="month-picker"><span className="sr-only">Select month</span><input aria-label="Select month" type="month" value={month} min="0001-01" max="9999-12" onChange={e => { if (e.target.value && e.target.value !== month) { setLoading(true); setData(null); setMonth(e.target.value) } }} /></label></div>
             <div className="summary-grid" aria-busy={loading}>
               <Summary title="Monthly income" value={data?.income} detail="Money coming in" type="income" />
               <Summary title="Monthly expenses" value={data?.expenses} detail="Money going out" type="expense" />
