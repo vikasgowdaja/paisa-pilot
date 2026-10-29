@@ -216,6 +216,13 @@ on first use. Never put these values in `.env` or commit them. Android's OAuth
 registration must match the signing certificate used by each debug or release
 build for Google sign-in.
 
+## Branch automation
+
+GitHub Actions automatically opens a pull request to `develop` when code is
+pushed to `feature/*` or `feat/*` branches. If an open PR for the same branch
+already targets `develop`, the workflow reuses it and does not create a
+duplicate.
+
 ## CSV format
 
 Use UTF-8 CSV with these exact headers, in this order:
