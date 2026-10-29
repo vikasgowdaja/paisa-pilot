@@ -210,9 +210,11 @@ npm run tauri -- android dev
 
 For a signed local release APK, set `PAISAPILOT_ANDROID_KEYSTORE`,
 `PAISAPILOT_ANDROID_KEYSTORE_PASSWORD`, and `PAISAPILOT_ANDROID_KEY_ALIAS` in
-the build environment, then run `npm run android:build`. Never put these values
-in `.env` or commit them. Android's OAuth registration must match the signing
-certificate used by each debug or release build for Google sign-in.
+the build environment, then run `npm run android:build`. That command runs
+`android:init` before patching/building, so it can bootstrap `src-tauri/gen/android`
+on first use. Never put these values in `.env` or commit them. Android's OAuth
+registration must match the signing certificate used by each debug or release
+build for Google sign-in.
 
 ## CSV format
 
@@ -291,3 +293,14 @@ Before publishing the draft:
    Never attach your database, private exports, or other personal files.
 7. Record a SHA-256 checksum and attach it if your organization permits.
 8. Publish the release, then check its asset download link while signed out.
+
+## Download for Windows
+
+[**Download PaisaPilot for Windows 11 (x64)**](https://github.com/vikasgowdaja/paisa-pilot/releases/latest)
+
+1. Open the link above.
+2. Under **Assets**, download the setup `.exe`.
+3. Run the installer and launch PaisaPilot from the Start menu.
+
+No Rust, Node.js or Visual Studio installation is required.
+Your transaction data stays locally on your computer.

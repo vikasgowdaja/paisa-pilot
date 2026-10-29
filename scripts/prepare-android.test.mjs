@@ -54,6 +54,18 @@ test('pins NDK 28 when the generated Gradle file has no NDK version', async () =
   }
 })
 
+test('throws a helpful error when Android scaffolding has not been initialized', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'paisapilot-android-missing-'))
+  try {
+    await assert.rejects(
+      () => prepareAndroid(directory),
+      /Run "npm run android:init" and retry/,
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 async function createAndroidFixture() {
   const directory = await mkdtemp(join(tmpdir(), 'paisapilot-android-'))
   await mkdir(join(directory, 'app', 'src', 'main'), { recursive: true })
