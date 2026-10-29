@@ -194,6 +194,10 @@ Rust for API requests and is not saved to disk.
 
 ### Local Android development
 
+The shared Rust entry point is `src-tauri/src/lib.rs`. Cargo builds it as a
+`cdylib` named `paisa_pilot`, producing `libpaisa_pilot.so` for Android.
+The Windows launcher calls the same entry point from `src-tauri/src/main.rs`.
+
 Install Node.js 22, Rust stable, JDK 17, Android SDK Platform 35, and Android
 NDK 28.2. Configure `ANDROID_HOME` and `NDK_HOME`. From the repository:
 

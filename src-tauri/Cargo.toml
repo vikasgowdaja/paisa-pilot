@@ -4,6 +4,10 @@ version = "1.0.0"
 description = "Local-first personal expense tracker"
 edition = "2021"
 
+[lib]
+name = "paisa_pilot"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 dotenvy = "0.15"

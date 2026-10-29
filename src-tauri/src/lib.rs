@@ -165,7 +165,7 @@ async fn gmail_sync(
 fn sync_gmail_messages(
     store: Arc<Mutex<Store>>,
     last_sync_ms: Option<i64>,
-    client_id: Option<String>,
+    _client_id: Option<String>,
     access_token: Option<String>,
 ) -> Result<GmailSyncResult, String> {
     let query = gmail::search_after_ms(last_sync_ms);
@@ -182,7 +182,7 @@ fn sync_gmail_messages(
             None => {
                 #[cfg(windows)]
                 {
-                    let id = client_id
+                    let id = _client_id
                         .as_deref()
                         .ok_or("Google sign-in is not configured in this build.")?;
                     gmail::list_message_ids(id, &query, page_token.as_deref())?
@@ -199,7 +199,7 @@ fn sync_gmail_messages(
                 None => {
                     #[cfg(windows)]
                     {
-                        let id = client_id
+                        let id = _client_id
                             .as_deref()
                             .ok_or("Google sign-in is not configured in this build.")?;
                         gmail::fetch_message(id, &message_id)?
