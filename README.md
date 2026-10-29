@@ -223,6 +223,14 @@ pushed to `feature/*` or `feat/*` branches. If an open PR for the same branch
 already targets `develop`, the workflow reuses it and does not create a
 duplicate.
 
+Pull requests also use:
+
+- `.github/pull_request_template.md` for a standard PR checklist.
+- `.github/workflows/auto-assign-pr.yml` to auto-assign the PR author and
+  request reviews from `.github/reviewers.json`.
+- `.github/workflows/build.yml` to run lint, build, and Android setup script
+  tests for PR validation.
+
 ## CSV format
 
 Use UTF-8 CSV with these exact headers, in this order:
