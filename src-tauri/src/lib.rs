@@ -60,6 +60,11 @@ fn snapshot(state: State<'_, AppState>, month: String) -> Result<Snapshot, Strin
 }
 
 #[tauri::command]
+fn quest_summary(state: State<'_, AppState>, month: String) -> Result<store::Quest, String> {
+    access(state, |s| s.quest(&month))
+}
+
+#[tauri::command]
 fn save_transaction(state: State<'_, AppState>, input: TransactionInput) -> Result<(), String> {
     access(state, |s| s.save(&input))
 }
@@ -309,6 +314,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             snapshot,
+            quest_summary,
             save_transaction,
             delete_transaction,
             add_account,

@@ -47,6 +47,31 @@ pub struct Category {
     pub id: i64,
     pub name: String,
     pub kind: String,
+    pub bucket: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct QuestMonth {
+    pub month: String,
+    pub income: i64,
+    pub deductions: i64,
+    pub expenses: i64,
+    pub investments: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QuestCategory {
+    pub name: String,
+    pub bucket: String,
+    pub amount: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Quest {
+    pub current: QuestMonth,
+    pub categories: Vec<QuestCategory>,
+    pub history: Vec<QuestMonth>,
+    pub transaction_count: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -196,7 +221,7 @@ impl Store {
         let mut version: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(db_error)?;
-        if version > 3 {
+        if version > 4 {
             return Err("Database was created by a newer PaisaPilot version.".into());
         }
         if version == 0 {
@@ -215,6 +240,12 @@ impl Store {
         if version < 3 {
             let tx = conn.transaction().map_err(db_error)?;
             tx.execute_batch(include_str!("../migrations/003_gmail_account.sql"))
+                .map_err(db_error)?;
+            tx.commit().map_err(db_error)?;
+        }
+        if version < 4 {
+            let tx = conn.transaction().map_err(db_error)?;
+            tx.execute_batch(include_str!("../migrations/004_money_buckets.sql"))
                 .map_err(db_error)?;
             tx.commit().map_err(db_error)?;
         }
@@ -572,13 +603,14 @@ impl Store {
         let total: i64 = self.conn.query_row("SELECT COALESCE(SUM(CASE WHEN kind='income' THEN amount ELSE -amount END),0) FROM transactions", [], |r| r.get(0)).map_err(db_error)?;
         let categories = self
             .conn
-            .prepare("SELECT id,name,kind FROM categories ORDER BY id")
+            .prepare("SELECT id,name,kind,bucket FROM categories ORDER BY id")
             .map_err(db_error)?
             .query_map([], |r| {
                 Ok(Category {
                     id: r.get(0)?,
                     name: r.get(1)?,
                     kind: r.get(2)?,
+                    bucket: r.get(3)?,
                 })
             })
             .map_err(db_error)?
@@ -597,6 +629,101 @@ impl Store {
             ),
             total_balance: money(total),
             database_path: self.path.clone(),
+        })
+    }
+
+    pub fn quest(&self, month: &str) -> Result<Quest> {
+        let date = NaiveDate::parse_from_str(&format!("{month}-01"), "%Y-%m-%d")
+            .map_err(|_| "Use a valid YYYY-MM month.")?;
+        if date.format("%Y-%m").to_string() != month {
+            return Err("Use a valid YYYY-MM month.".into());
+        }
+        // Six months ending at the selected month, oldest first.
+        let months: Vec<String> = (0..6u32)
+            .rev()
+            .filter_map(|back| date.checked_sub_months(chrono::Months::new(back)))
+            .map(|d| d.format("%Y-%m").to_string())
+            .collect();
+        let first = months.first().cloned().unwrap_or_else(|| month.to_string());
+        let totals = self
+            .conn
+            .prepare(
+                "SELECT substr(t.date,1,7),
+                    COALESCE(SUM(CASE WHEN t.kind='income' THEN t.amount END),0),
+                    COALESCE(SUM(CASE WHEN t.kind='expense' AND c.bucket='deduction' THEN t.amount END),0),
+                    COALESCE(SUM(CASE WHEN t.kind='expense' AND c.bucket='expense' THEN t.amount END),0),
+                    COALESCE(SUM(CASE WHEN t.kind='expense' AND c.bucket='investment' THEN t.amount END),0)
+                 FROM transactions t JOIN categories c ON c.id=t.category_id
+                 WHERE substr(t.date,1,7) BETWEEN ?1 AND ?2 GROUP BY 1",
+            )
+            .map_err(db_error)?
+            .query_map(params![first, month], |r| {
+                Ok(QuestMonth {
+                    month: r.get(0)?,
+                    income: r.get(1)?,
+                    deductions: r.get(2)?,
+                    expenses: r.get(3)?,
+                    investments: r.get(4)?,
+                })
+            })
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        let history: Vec<QuestMonth> = months
+            .iter()
+            .map(|m| {
+                totals
+                    .iter()
+                    .find(|row| &row.month == m)
+                    .cloned()
+                    .unwrap_or(QuestMonth {
+                        month: m.clone(),
+                        income: 0,
+                        deductions: 0,
+                        expenses: 0,
+                        investments: 0,
+                    })
+            })
+            .collect();
+        let current = history.last().cloned().unwrap_or(QuestMonth {
+            month: month.to_string(),
+            income: 0,
+            deductions: 0,
+            expenses: 0,
+            investments: 0,
+        });
+        let categories = self
+            .conn
+            .prepare(
+                "SELECT c.name,c.bucket,SUM(t.amount) FROM transactions t
+                 JOIN categories c ON c.id=t.category_id
+                 WHERE substr(t.date,1,7)=?1 AND t.kind='expense'
+                 GROUP BY c.id ORDER BY SUM(t.amount) DESC, c.name",
+            )
+            .map_err(db_error)?
+            .query_map([month], |r| {
+                Ok(QuestCategory {
+                    name: r.get(0)?,
+                    bucket: r.get(1)?,
+                    amount: r.get(2)?,
+                })
+            })
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        let transaction_count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM transactions WHERE substr(date,1,7)=?1",
+                [month],
+                |r| r.get(0),
+            )
+            .map_err(db_error)?;
+        Ok(Quest {
+            current,
+            categories,
+            history,
+            transaction_count,
         })
     }
 
@@ -922,5 +1049,81 @@ mod tests {
         assert_eq!(store.snapshot("2026-10").unwrap().transactions.len(), 1);
         assert_eq!(store.gmail_candidates().unwrap().len(), 0);
         assert_eq!(store.gmail_account_email().unwrap(), "");
+    }
+
+    fn category_id(store: &Store, name: &str) -> i64 {
+        store
+            .conn
+            .query_row("SELECT id FROM categories WHERE name=?1", [name], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn money_bucket_migration_keeps_ids_and_tags_categories() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy.sqlite3");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(include_str!("../migrations/001_initial.sql"))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO transactions(date,amount,kind,description,category_id,account_id) VALUES('2026-10-28',1234,'expense','Existing coffee',3,1)",
+            [],
+        ).unwrap();
+        drop(conn);
+
+        let store = Store::open(&path).unwrap();
+        let categories = store.snapshot("2026-10").unwrap().categories;
+        let bucket = |name: &str| {
+            categories
+                .iter()
+                .find(|c| c.name == name)
+                .map(|c| c.bucket.clone())
+                .unwrap()
+        };
+        assert_eq!(categories.iter().find(|c| c.id == 1).unwrap().name, "Salary");
+        assert_eq!(categories.iter().find(|c| c.id == 3).unwrap().name, "Food & dining");
+        assert_eq!(bucket("Salary"), "income");
+        assert_eq!(bucket("Food & dining"), "expense");
+        assert_eq!(bucket("PF / EPF"), "deduction");
+        assert_eq!(bucket("SIP / Mutual funds"), "investment");
+        assert_eq!(store.snapshot("2026-10").unwrap().transactions.len(), 1);
+    }
+
+    #[test]
+    fn quest_splits_salary_into_deductions_expenses_and_investments() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(&dir.path().join("quest.sqlite3")).unwrap();
+        let tax = category_id(&store, "Income tax / TDS");
+        let sip = category_id(&store, "SIP / Mutual funds");
+        let mut add = |date: &str, amount: &str, kind: &str, category: i64| {
+            let mut t = input(amount, kind);
+            t.date = date.into();
+            t.category_id = category;
+            store.save(&t).unwrap();
+        };
+        add("2026-10-01", "100000", "income", 1);
+        add("2026-10-02", "10000", "expense", tax);
+        add("2026-10-05", "30000", "expense", 3);
+        add("2026-10-06", "15000", "expense", sip);
+        add("2026-09-01", "80000", "income", 1);
+        add("2026-09-10", "20000", "expense", 3);
+
+        let quest = store.quest("2026-10").unwrap();
+        assert_eq!(quest.current.month, "2026-10");
+        assert_eq!(quest.current.income, 10_000_000);
+        assert_eq!(quest.current.deductions, 1_000_000);
+        assert_eq!(quest.current.expenses, 3_000_000);
+        assert_eq!(quest.current.investments, 1_500_000);
+        assert_eq!(quest.transaction_count, 4);
+        assert_eq!(quest.history.len(), 6);
+        assert_eq!(quest.history[0].month, "2026-05");
+        assert_eq!(quest.history[4].month, "2026-09");
+        assert_eq!(quest.history[4].income, 8_000_000);
+        assert_eq!(quest.history[0].income, 0);
+        assert_eq!(quest.categories[0].name, "Food & dining");
+        assert_eq!(quest.categories.len(), 3);
+        assert!(store.quest("2026-13").is_err());
     }
 }
