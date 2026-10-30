@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
-import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, ChevronRight, Download, FolderLock, LayoutDashboard, Leaf, Mail, Menu, Pencil, Plus, Search, Settings, ShieldCheck, Tags, Trash2, Upload, Wallet, X } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, ChevronRight, Download, FolderLock, LayoutDashboard, IndianRupee, Leaf, Mail, Menu, Pencil, Plus, Search, Settings, ShieldCheck, Tags, Trash2, Upload, Wallet, X } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './components/ui/dialog'
 import { GmailReview } from './components/GmailReview'
@@ -151,7 +151,7 @@ function App() {
   return (
     <div className={`app-shell ${collapsed ? 'collapsed' : ''}`}>
       <aside className="sidebar">
-        <div className="brand"><div className="brand-icon"><Leaf size={22} /></div><span>Paisa<span className="font-normal">Pilot</span><small>YOUR MONEY, IN FOCUS</small></span></div>
+        <div className="brand"><div className="brand-icon"><IndianRupee size={22} /></div><span>Paisa<span className="font-normal">Pilot</span><small>YOUR MONEY, IN FOCUS</small></span></div>
         <div className="nav-caption">WORKSPACE</div>
         <nav aria-label="Main navigation">{pages.map(({ name, icon: Icon }) =>
           <button key={name} title={name} className={`nav-item ${page === name ? 'active' : ''}`} onClick={() => setPage(name)}><Icon size={19} /><span>{name}</span>{page === name && <span className="nav-dot" />}</button>,

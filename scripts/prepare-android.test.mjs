@@ -25,6 +25,11 @@ test('prepares Android app with native auth dependency idempotently', async () =
       'utf8',
     )
     assert.match(activity, /setOnApplyWindowInsetsListener/)
+    const launcher = await readFile(
+      join(project, 'app', 'src', 'main', 'res', 'mipmap-anydpi-v26', 'ic_launcher.xml'),
+      'utf8',
+    )
+    assert.match(launcher, /@mipmap\/ic_launcher_foreground/)
   } finally {
     await rm(project, { recursive: true, force: true })
   }

@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -36,6 +36,12 @@ export async function prepareAndroid(projectDirectory, { signing = false } = {})
   await copyFile(pluginSource, pluginDestination)
   await mkdir(dirname(activityDestination), { recursive: true })
   await copyFile(activitySource, activityDestination)
+
+  // `tauri android init` generates Tauri's default launcher icons; replace them with ours.
+  await cp(join(repositoryRoot, 'src-tauri', 'icons', 'android'), join(appDirectory, 'src', 'main', 'res'), {
+    recursive: true,
+    force: true,
+  })
 
   let manifest = await readRequiredFile(manifestFile)
   const internetPermission = '<uses-permission android:name="android.permission.INTERNET" />'
