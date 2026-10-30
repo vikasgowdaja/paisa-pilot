@@ -1,3 +1,4 @@
+mod finance;
 mod gmail;
 mod store;
 
@@ -60,8 +61,34 @@ fn snapshot(state: State<'_, AppState>, month: String) -> Result<Snapshot, Strin
 }
 
 #[tauri::command]
-fn quest_summary(state: State<'_, AppState>, month: String) -> Result<store::Quest, String> {
-    access(state, |s| s.quest(&month))
+fn finance_dashboard(state: State<'_, AppState>, month: String) -> Result<finance::Dashboard, String> {
+    let today = chrono::Local::now().format("%Y-%m").to_string();
+    access(state, |s| s.dashboard(&month, &today))
+}
+
+#[tauri::command]
+fn set_salary(state: State<'_, AppState>, month: String, gross: String, deductions: String) -> Result<(), String> {
+    access(state, |s| s.set_salary(&month, &gross, &deductions))
+}
+
+#[tauri::command]
+fn clear_salary(state: State<'_, AppState>, month: String) -> Result<(), String> {
+    access(state, |s| s.clear_salary(&month))
+}
+
+#[tauri::command]
+fn set_budget(state: State<'_, AppState>, category_id: i64, amount: String) -> Result<(), String> {
+    access(state, |s| s.set_budget(category_id, &amount))
+}
+
+#[tauri::command]
+fn save_finance_settings(
+    state: State<'_, AppState>,
+    budget_warn_pct: i64,
+    savings_goal_pct: i64,
+    invest_goal_pct: i64,
+) -> Result<(), String> {
+    access(state, |s| s.save_settings(budget_warn_pct, savings_goal_pct, invest_goal_pct))
 }
 
 #[tauri::command]
@@ -314,7 +341,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             snapshot,
-            quest_summary,
+            finance_dashboard,
+            set_salary,
+            clear_salary,
+            set_budget,
+            save_finance_settings,
             save_transaction,
             delete_transaction,
             add_account,

@@ -50,6 +50,34 @@ Accounts begin at zero. Record an income transaction for an opening balance.
 Account balances include all recorded dates; dashboard totals use the selected
 month. No sample transactions are inserted into the real database.
 
+## Salary dashboard (Money Quest)
+
+The landing page turns your month into a salary journey. Enter your **gross salary
+and total deductions** in *Salary setup*; net salary is calculated for you
+(`net = gross − deductions`). Everything else comes from your recorded
+transactions:
+
+- **Salary utilization** = (expenses + investments + savings) ÷ net × 100, with
+  bands at 50 / 75 / 90 / 100 %. Unallocated money is shown as *remaining*, never
+  treated as spent.
+- Category types decide where money counts: *fixed* and *variable* are expenses;
+  *investment* and *saving* categories are allocations, not consumption;
+  *deduction* categories are never expenses; *Transfer in/out* are ignored so
+  moves between your own accounts are not double counted; *Refund / reversal*
+  reduces expenses instead of counting as income.
+- If no salary is set up for a month, income and deduction entries are used instead.
+  With a setup, the setup owns gross and deductions, so matching *Salary* and
+  deduction entries are ignored to avoid double counting.
+- **Budgets** are one monthly limit per expense category, with a configurable
+  warning threshold. Savings and investment goals (% of net) are configurable too.
+- **XP, levels, achievements and missions** are derived from recorded data, never
+  from clicks: +5 per day with expenses recorded, +30 per fully tracked month,
+  +20 per budget kept in a finished month, +50 per savings goal and per
+  investment target reached, +40 per completed mission. Each level takes 500 XP.
+
+The dashboard uses a dark theme by default with a light toggle (remembered on this
+device). Calculations live in `src-tauri/src/finance.rs` and are covered by unit tests.
+
 ## Privacy and backup
 
 On Windows, the database is stored in the application's per-user data directory:

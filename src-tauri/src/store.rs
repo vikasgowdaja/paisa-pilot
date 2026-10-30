@@ -1,6 +1,8 @@
+use crate::finance;
 use chrono::NaiveDate;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 type Result<T> = std::result::Result<T, String>;
@@ -8,6 +10,26 @@ const LIMIT: i64 = 100_000_000_000;
 
 fn db_error(e: impl std::fmt::Display) -> String {
     format!("Database operation failed: {e}")
+}
+
+fn valid_month(month: &str) -> Result<()> {
+    let date = NaiveDate::parse_from_str(&format!("{month}-01"), "%Y-%m-%d")
+        .map_err(|_| "Use a valid YYYY-MM month.")?;
+    if date.format("%Y-%m").to_string() != month {
+        return Err("Use a valid YYYY-MM month.".into());
+    }
+    Ok(())
+}
+
+/// Like `parse_amount`, but an empty value or zero is accepted and means "none".
+fn parse_optional_amount(value: &str) -> Result<i64> {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || (trimmed.contains('0') && trimmed.chars().all(|c| c == '0' || c == '.') && trimmed.matches('.').count() <= 1)
+    {
+        return Ok(0);
+    }
+    parse_amount(trimmed)
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,30 +70,6 @@ pub struct Category {
     pub name: String,
     pub kind: String,
     pub bucket: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct QuestMonth {
-    pub month: String,
-    pub income: i64,
-    pub deductions: i64,
-    pub expenses: i64,
-    pub investments: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct QuestCategory {
-    pub name: String,
-    pub bucket: String,
-    pub amount: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct Quest {
-    pub current: QuestMonth,
-    pub categories: Vec<QuestCategory>,
-    pub history: Vec<QuestMonth>,
-    pub transaction_count: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -221,7 +219,7 @@ impl Store {
         let mut version: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(db_error)?;
-        if version > 4 {
+        if version > 5 {
             return Err("Database was created by a newer PaisaPilot version.".into());
         }
         if version == 0 {
@@ -246,6 +244,12 @@ impl Store {
         if version < 4 {
             let tx = conn.transaction().map_err(db_error)?;
             tx.execute_batch(include_str!("../migrations/004_money_buckets.sql"))
+                .map_err(db_error)?;
+            tx.commit().map_err(db_error)?;
+        }
+        if version < 5 {
+            let tx = conn.transaction().map_err(db_error)?;
+            tx.execute_batch(include_str!("../migrations/005_finance_engine.sql"))
                 .map_err(db_error)?;
             tx.commit().map_err(db_error)?;
         }
@@ -603,7 +607,7 @@ impl Store {
         let total: i64 = self.conn.query_row("SELECT COALESCE(SUM(CASE WHEN kind='income' THEN amount ELSE -amount END),0) FROM transactions", [], |r| r.get(0)).map_err(db_error)?;
         let categories = self
             .conn
-            .prepare("SELECT id,name,kind,bucket FROM categories ORDER BY id")
+            .prepare("SELECT id,name,kind,flow FROM categories ORDER BY id")
             .map_err(db_error)?
             .query_map([], |r| {
                 Ok(Category {
@@ -632,99 +636,163 @@ impl Store {
         })
     }
 
-    pub fn quest(&self, month: &str) -> Result<Quest> {
-        let date = NaiveDate::parse_from_str(&format!("{month}-01"), "%Y-%m-%d")
-            .map_err(|_| "Use a valid YYYY-MM month.")?;
-        if date.format("%Y-%m").to_string() != month {
-            return Err("Use a valid YYYY-MM month.".into());
-        }
-        // Six months ending at the selected month, oldest first.
-        let months: Vec<String> = (0..6u32)
-            .rev()
-            .filter_map(|back| date.checked_sub_months(chrono::Months::new(back)))
-            .map(|d| d.format("%Y-%m").to_string())
-            .collect();
-        let first = months.first().cloned().unwrap_or_else(|| month.to_string());
-        let totals = self
-            .conn
-            .prepare(
-                "SELECT substr(t.date,1,7),
-                    COALESCE(SUM(CASE WHEN t.kind='income' THEN t.amount END),0),
-                    COALESCE(SUM(CASE WHEN t.kind='expense' AND c.bucket='deduction' THEN t.amount END),0),
-                    COALESCE(SUM(CASE WHEN t.kind='expense' AND c.bucket='expense' THEN t.amount END),0),
-                    COALESCE(SUM(CASE WHEN t.kind='expense' AND c.bucket='investment' THEN t.amount END),0)
-                 FROM transactions t JOIN categories c ON c.id=t.category_id
-                 WHERE substr(t.date,1,7) BETWEEN ?1 AND ?2 GROUP BY 1",
-            )
-            .map_err(db_error)?
-            .query_map(params![first, month], |r| {
-                Ok(QuestMonth {
-                    month: r.get(0)?,
-                    income: r.get(1)?,
-                    deductions: r.get(2)?,
-                    expenses: r.get(3)?,
-                    investments: r.get(4)?,
-                })
-            })
-            .map_err(db_error)?
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(db_error)?;
-        let history: Vec<QuestMonth> = months
-            .iter()
-            .map(|m| {
-                totals
-                    .iter()
-                    .find(|row| &row.month == m)
-                    .cloned()
-                    .unwrap_or(QuestMonth {
-                        month: m.clone(),
-                        income: 0,
-                        deductions: 0,
-                        expenses: 0,
-                        investments: 0,
-                    })
-            })
-            .collect();
-        let current = history.last().cloned().unwrap_or(QuestMonth {
-            month: month.to_string(),
-            income: 0,
-            deductions: 0,
-            expenses: 0,
-            investments: 0,
-        });
+    pub fn dashboard(&self, month: &str, today_month: &str) -> Result<finance::Dashboard> {
+        valid_month(month)?;
         let categories = self
             .conn
-            .prepare(
-                "SELECT c.name,c.bucket,SUM(t.amount) FROM transactions t
-                 JOIN categories c ON c.id=t.category_id
-                 WHERE substr(t.date,1,7)=?1 AND t.kind='expense'
-                 GROUP BY c.id ORDER BY SUM(t.amount) DESC, c.name",
-            )
+            .prepare("SELECT id,name,flow FROM categories ORDER BY id")
             .map_err(db_error)?
-            .query_map([month], |r| {
-                Ok(QuestCategory {
-                    name: r.get(0)?,
-                    bucket: r.get(1)?,
-                    amount: r.get(2)?,
+            .query_map([], |r| {
+                Ok(finance::CategoryInfo {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    flow: r.get(2)?,
                 })
             })
             .map_err(db_error)?
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(db_error)?;
-        let transaction_count: i64 = self
+
+        let mut months: BTreeMap<String, finance::MonthInput> = BTreeMap::new();
+        let totals = self
+            .conn
+            .prepare("SELECT substr(date,1,7),category_id,SUM(amount),COUNT(*) FROM transactions GROUP BY 1,2")
+            .map_err(db_error)?
+            .query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?))
+            })
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        for (m, category, amount, count) in totals {
+            let entry = months.entry(m).or_default();
+            entry.totals.insert(category, amount);
+            entry.tx_count += count;
+        }
+        let tracked = self
+            .conn
+            .prepare(
+                "SELECT substr(t.date,1,7),COUNT(DISTINCT t.date) FROM transactions t
+                 JOIN categories c ON c.id=t.category_id
+                 WHERE t.kind='expense' AND c.flow IN ('fixed','variable','investment','saving')
+                 GROUP BY 1",
+            )
+            .map_err(db_error)?
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        for (m, days) in tracked {
+            months.entry(m).or_default().tracked_days = days;
+        }
+        let plans = self
+            .conn
+            .prepare("SELECT month,gross,deductions FROM salary_plans")
+            .map_err(db_error)?
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        for (m, gross, deductions) in plans {
+            months.entry(m).or_default().plan = Some((gross, deductions));
+        }
+        let budgets = self
+            .conn
+            .prepare("SELECT category_id,amount FROM budgets")
+            .map_err(db_error)?
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(db_error)?
+            .collect::<std::result::Result<HashMap<_, _>, _>>()
+            .map_err(db_error)?;
+        let setting = |key: &str, default: i64| -> i64 {
+            self.conn
+                .query_row("SELECT value FROM app_settings WHERE key=?1", [key], |r| r.get(0))
+                .unwrap_or(default)
+        };
+        let ctx = finance::Context {
+            categories,
+            months,
+            budgets,
+            settings: finance::Settings {
+                budget_warn_pct: setting("budget_warn_pct", 80),
+                savings_goal_pct: setting("savings_goal_pct", 10),
+                invest_goal_pct: setting("invest_goal_pct", 10),
+            },
+        };
+        Ok(ctx.dashboard(month, today_month))
+    }
+
+    pub fn set_salary(&mut self, month: &str, gross: &str, deductions: &str) -> Result<()> {
+        valid_month(month)?;
+        let gross = parse_amount(gross)?;
+        let deductions = parse_optional_amount(deductions)?;
+        if deductions > gross {
+            return Err("Deductions cannot be more than the gross salary.".into());
+        }
+        self.conn
+            .execute(
+                "INSERT INTO salary_plans(month,gross,deductions) VALUES(?1,?2,?3)
+                 ON CONFLICT(month) DO UPDATE SET gross=excluded.gross,deductions=excluded.deductions",
+                params![month, gross, deductions],
+            )
+            .map_err(db_error)?;
+        Ok(())
+    }
+
+    pub fn clear_salary(&mut self, month: &str) -> Result<()> {
+        valid_month(month)?;
+        self.conn
+            .execute("DELETE FROM salary_plans WHERE month=?1", [month])
+            .map_err(db_error)?;
+        Ok(())
+    }
+
+    pub fn set_budget(&mut self, category_id: i64, amount: &str) -> Result<()> {
+        let amount = parse_optional_amount(amount)?;
+        let budgetable: bool = self
             .conn
             .query_row(
-                "SELECT COUNT(*) FROM transactions WHERE substr(date,1,7)=?1",
-                [month],
+                "SELECT EXISTS(SELECT 1 FROM categories WHERE id=?1 AND flow IN ('fixed','variable'))",
+                [category_id],
                 |r| r.get(0),
             )
             .map_err(db_error)?;
-        Ok(Quest {
-            current,
-            categories,
-            history,
-            transaction_count,
-        })
+        if !budgetable {
+            return Err("Budgets can only be set for expense categories.".into());
+        }
+        if amount == 0 {
+            self.conn
+                .execute("DELETE FROM budgets WHERE category_id=?1", [category_id])
+                .map_err(db_error)?;
+        } else {
+            self.conn
+                .execute(
+                    "INSERT INTO budgets(category_id,amount) VALUES(?1,?2)
+                     ON CONFLICT(category_id) DO UPDATE SET amount=excluded.amount",
+                    params![category_id, amount],
+                )
+                .map_err(db_error)?;
+        }
+        Ok(())
+    }
+
+    pub fn save_settings(&mut self, budget_warn_pct: i64, savings_goal_pct: i64, invest_goal_pct: i64) -> Result<()> {
+        if !(1..=100).contains(&budget_warn_pct) || !(0..=100).contains(&savings_goal_pct) || !(0..=100).contains(&invest_goal_pct) {
+            return Err("Use percentages between 0 and 100 (warning threshold at least 1).".into());
+        }
+        for (key, value) in [
+            ("budget_warn_pct", budget_warn_pct),
+            ("savings_goal_pct", savings_goal_pct),
+            ("invest_goal_pct", invest_goal_pct),
+        ] {
+            self.conn
+                .execute(
+                    "INSERT INTO app_settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    params![key, value],
+                )
+                .map_err(db_error)?;
+        }
+        Ok(())
     }
 
     pub fn export_csv(&self) -> Result<String> {
@@ -1061,7 +1129,7 @@ mod tests {
     }
 
     #[test]
-    fn money_bucket_migration_keeps_ids_and_tags_categories() {
+    fn finance_migration_keeps_ids_and_classifies_categories() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("legacy.sqlite3");
         let conn = Connection::open(&path).unwrap();
@@ -1075,7 +1143,7 @@ mod tests {
 
         let store = Store::open(&path).unwrap();
         let categories = store.snapshot("2026-10").unwrap().categories;
-        let bucket = |name: &str| {
+        let flow = |name: &str| {
             categories
                 .iter()
                 .find(|c| c.name == name)
@@ -1084,46 +1152,88 @@ mod tests {
         };
         assert_eq!(categories.iter().find(|c| c.id == 1).unwrap().name, "Salary");
         assert_eq!(categories.iter().find(|c| c.id == 3).unwrap().name, "Food & dining");
-        assert_eq!(bucket("Salary"), "income");
-        assert_eq!(bucket("Food & dining"), "expense");
-        assert_eq!(bucket("PF / EPF"), "deduction");
-        assert_eq!(bucket("SIP / Mutual funds"), "investment");
+        for (name, expected) in [
+            ("Salary", "salary"), ("Other income", "income"), ("Refund / reversal", "refund"),
+            ("Transfer out", "transfer"), ("PF / EPF", "deduction"), ("Income tax / TDS", "deduction"),
+            ("Rent / Housing", "fixed"), ("Loan EMI", "fixed"), ("Bills & utilities", "fixed"),
+            ("Food & dining", "variable"), ("SIP / Mutual funds", "investment"), ("Emergency fund", "saving"),
+        ] {
+            assert_eq!(flow(name), expected, "{name}");
+        }
         assert_eq!(store.snapshot("2026-10").unwrap().transactions.len(), 1);
+        assert_eq!(store.dashboard("2026-10", "2026-10").unwrap().summary.consumed, 1234);
     }
 
     #[test]
-    fn quest_splits_salary_into_deductions_expenses_and_investments() {
+    fn dashboard_reads_real_transactions_salary_budgets_and_settings() {
         let dir = tempfile::tempdir().unwrap();
-        let mut store = Store::open(&dir.path().join("quest.sqlite3")).unwrap();
-        let tax = category_id(&store, "Income tax / TDS");
+        let path = dir.path().join("dash.sqlite3");
+        let mut store = Store::open(&path).unwrap();
+        let rent = category_id(&store, "Rent / Housing");
         let sip = category_id(&store, "SIP / Mutual funds");
-        let mut add = |date: &str, amount: &str, kind: &str, category: i64| {
-            let mut t = input(amount, kind);
-            t.date = date.into();
-            t.category_id = category;
-            store.save(&t).unwrap();
-        };
-        add("2026-10-01", "100000", "income", 1);
-        add("2026-10-02", "10000", "expense", tax);
-        add("2026-10-05", "30000", "expense", 3);
-        add("2026-10-06", "15000", "expense", sip);
-        add("2026-09-01", "80000", "income", 1);
-        add("2026-09-10", "20000", "expense", 3);
+        let tds = category_id(&store, "Income tax / TDS");
+        let transfer = category_id(&store, "Transfer out");
+        let refund = category_id(&store, "Refund / reversal");
+        {
+            let mut add = |date: &str, amount: &str, kind: &str, category: i64| {
+                let mut t = input(amount, kind);
+                t.date = date.into();
+                t.category_id = category;
+                store.save(&t).unwrap();
+            };
+            add("2026-10-01", "20000", "expense", rent);
+            add("2026-10-03", "8000", "expense", 3);
+            add("2026-10-03", "20000", "expense", sip);
+            add("2026-10-04", "5000", "expense", tds);
+            add("2026-10-05", "50000", "expense", transfer);
+            add("2026-10-06", "1000", "income", refund);
+            add("2026-09-03", "2000", "expense", 3);
+        }
+        store.set_salary("2026-10", "120000", "20000").unwrap();
+        store.set_budget(3, "10000").unwrap();
 
-        let quest = store.quest("2026-10").unwrap();
-        assert_eq!(quest.current.month, "2026-10");
-        assert_eq!(quest.current.income, 10_000_000);
-        assert_eq!(quest.current.deductions, 1_000_000);
-        assert_eq!(quest.current.expenses, 3_000_000);
-        assert_eq!(quest.current.investments, 1_500_000);
-        assert_eq!(quest.transaction_count, 4);
-        assert_eq!(quest.history.len(), 6);
-        assert_eq!(quest.history[0].month, "2026-05");
-        assert_eq!(quest.history[4].month, "2026-09");
-        assert_eq!(quest.history[4].income, 8_000_000);
-        assert_eq!(quest.history[0].income, 0);
-        assert_eq!(quest.categories[0].name, "Food & dining");
-        assert_eq!(quest.categories.len(), 3);
-        assert!(store.quest("2026-13").is_err());
+        let d = store.dashboard("2026-10", "2026-10").unwrap();
+        assert_eq!(d.summary.source, "setup");
+        assert_eq!(d.summary.net, 10_000_000);
+        assert_eq!(d.summary.consumed, 2_700_000, "refund offsets food/rent, transfer and TDS ignored");
+        assert_eq!(d.summary.investments, 2_000_000);
+        assert_eq!(d.summary.remaining, 5_300_000);
+        assert_eq!(d.summary.tracked_days, 2, "transfers, deductions and refunds are not tracking days");
+        assert_eq!(d.previous.consumed, 200_000);
+        let food = d.budgets.iter().find(|b| b.category_id == 3).unwrap();
+        assert_eq!((food.budget, food.spent, food.status.as_str()), (1_000_000, 800_000, "warn"));
+        assert_eq!(d.settings.budget_warn_pct, 80);
+
+        // Budgets and salary survive a restart; clearing the plan falls back to entries.
+        store.save_settings(90, 15, 12).unwrap();
+        store.clear_salary("2026-10").unwrap();
+        drop(store);
+        let mut store = Store::open(&path).unwrap();
+        let d = store.dashboard("2026-10", "2026-10").unwrap();
+        assert_eq!(d.settings.budget_warn_pct, 90);
+        assert_eq!((d.settings.savings_goal_pct, d.settings.invest_goal_pct), (15, 12));
+        assert_eq!(d.summary.source, "transactions", "falls back to entries once the plan is cleared");
+        assert_eq!(d.summary.net, 0, "a lone deduction entry cannot create negative pay");
+        assert_eq!(d.budgets.iter().find(|b| b.category_id == 3).unwrap().budget, 1_000_000);
+        store.set_budget(3, "0").unwrap();
+        assert_eq!(store.dashboard("2026-10", "2026-10").unwrap().budgets.iter().find(|b| b.category_id == 3).unwrap().budget, 0);
+    }
+
+    #[test]
+    fn salary_budget_and_settings_inputs_are_validated() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(&dir.path().join("val.sqlite3")).unwrap();
+        assert!(store.set_salary("2026-13", "1000", "0").is_err());
+        assert!(store.set_salary("2026-10", "0", "0").is_err());
+        assert!(store.set_salary("2026-10", "1000", "1000.01").is_err());
+        assert!(store.set_salary("2026-10", "1000", "abc").is_err());
+        assert!(store.set_salary("2026-10", "1000", "").is_ok());
+        assert!(store.set_budget(1, "100").is_err(), "income categories cannot be budgeted");
+        assert!(store.set_budget(3, "-5").is_err());
+        assert!(store.set_budget(3, ".").is_err());
+        assert!(store.save_settings(0, 10, 10).is_err());
+        assert!(store.save_settings(80, 101, 10).is_err());
+        assert!(store.dashboard("2026-13", "2026-10").is_err());
+        assert_eq!(parse_optional_amount("0.00").unwrap(), 0);
     }
 }
