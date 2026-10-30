@@ -20,8 +20,22 @@ export async function prepareAndroid(projectDirectory, { signing = false } = {})
     'GmailAuthPlugin.kt',
   )
 
+  const activitySource = join(repositoryRoot, 'src-tauri', 'android', 'MainActivity.kt')
+  const activityDestination = join(
+    appDirectory,
+    'src',
+    'main',
+    'java',
+    'com',
+    'paisapilot',
+    'desktop',
+    'MainActivity.kt',
+  )
+
   await mkdir(dirname(pluginDestination), { recursive: true })
   await copyFile(pluginSource, pluginDestination)
+  await mkdir(dirname(activityDestination), { recursive: true })
+  await copyFile(activitySource, activityDestination)
 
   let manifest = await readRequiredFile(manifestFile)
   const internetPermission = '<uses-permission android:name="android.permission.INTERNET" />'

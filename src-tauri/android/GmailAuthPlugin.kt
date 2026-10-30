@@ -1,11 +1,11 @@
 package com.paisapilot.gmail
 
 import android.app.Activity
+import androidx.activity.result.ActivityResult
 import androidx.activity.result.IntentSenderRequest
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.TauriPlugin
-import app.tauri.plugin.ActivityResult
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin

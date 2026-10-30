@@ -20,6 +20,11 @@ test('prepares Android app with native auth dependency idempotently', async () =
     assert.match(gradle, /ndkVersion = "28\.2\.13676358"/)
     assert.equal(manifest.split('android.permission.INTERNET').length - 1, 1)
     assert.match(plugin, /gmail\.readonly/)
+    const activity = await readFile(
+      join(project, 'app', 'src', 'main', 'java', 'com', 'paisapilot', 'desktop', 'MainActivity.kt'),
+      'utf8',
+    )
+    assert.match(activity, /setOnApplyWindowInsetsListener/)
   } finally {
     await rm(project, { recursive: true, force: true })
   }
