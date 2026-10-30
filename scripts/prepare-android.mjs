@@ -64,6 +64,7 @@ export async function prepareAndroid(projectDirectory, { signing = false } = {})
     gradle = gradle.replace(dependenciesBlock, `$1\n    ${dependency}`)
   }
   gradle = configureNdkVersion(gradle, gradleFile)
+  gradle = configureArchiveName(gradle, gradleFile)
 
   if (signing) {
     gradle = configureReleaseSigning(gradle, gradleFile)
@@ -83,6 +84,18 @@ async function readRequiredFile(filePath) {
     }
     throw error
   }
+}
+
+function configureArchiveName(gradle, gradleFile) {
+  const setting = 'base.archivesName.set("PaisaPilot")'
+  if (gradle.includes(setting)) {
+    return gradle
+  }
+  const androidBlock = /^[ \t]*android[ \t]*\{/m
+  if (!androidBlock.test(gradle)) {
+    throw new Error(`Could not find android block in ${gradleFile}`)
+  }
+  return gradle.replace(androidBlock, (match) => `${setting}\n\n${match}`)
 }
 
 function configureNdkVersion(gradle, gradleFile) {

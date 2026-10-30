@@ -17,6 +17,7 @@ test('prepares Android app with native auth dependency idempotently', async () =
       'utf8',
     )
     assert.equal(gradle.split('play-services-auth:21.4.0').length - 1, 1)
+    assert.equal(gradle.split('base.archivesName.set("PaisaPilot")').length - 1, 1)
     assert.match(gradle, /ndkVersion = "28\.2\.13676358"/)
     assert.equal(manifest.split('android.permission.INTERNET').length - 1, 1)
     assert.match(plugin, /gmail\.readonly/)
